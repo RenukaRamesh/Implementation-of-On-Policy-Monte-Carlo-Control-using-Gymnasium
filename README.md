@@ -23,28 +23,62 @@ The objective of this experiment is to:
 
 ## Software Requirements
 
-```bash
-pip install gymnasium numpy matplotlib
-```
+#### Software
 ```
 Python 3.x
+Jupyter Notebook / Google Colab / VS Code
 Gymnasium
 NumPy
 Matplotlib
-Google Colab / Jupyter Notebook
 ```
----
+
+#### Installation
+```
+pip install gymnasium numpy matplotlib
+```
+
 
 ## Environment Description
 
+The experiment uses the FrozenLake-v1 environment from Gymnasium.
+
+The default 4 × 4 FrozenLake environment is:
 ```
-env_desc = [
-    "SFFF",
-    "FHFH",
-    "FFFH",
-    "HFFG"
-]
+S  F  F  F
+F  H  F  H
+F  F  F  H
+H  F  F  G
 ```
+Where:
+
+**S**  = Starting state  
+**F**  = Frozen surface  
+**H**  = Hole  
+**G**  = Goal
+
+The environment contains:
+
+* **16 states**
+* **4 actions**
+
+**Actions**
+
+| Action Number | Direction |
+| ------ | ------- |
+| 0      | Left    |
+| 1      | Down    |
+| 2      | Right   |
+| 3      | Up      |
+
+The agent receives a reward of 1 when it reaches the goal. Other transitions generally provide a reward of 0.
+
+In this experiment:
+
+is_slippery=False
+
+is used so that the environment is deterministic and the effect of the learned policy can be clearly observed.
+
+
 ## Theory
 
 Monte Carlo methods learn from **complete episodes**. An episode is a sequence of states, actions, and rewards:
@@ -108,34 +142,21 @@ $$
 
 ## Algorithm
 
-1.Start the FrozenLake-v1 environment using Gymnasium.
-
-2.Initialize the Q-table with zeros for all states and actions.
-
-3.Set the learning parameters: number of episodes, learning rate alpha, discount factor gamma, and exploration rate epsilon.
-
-4.Generate a complete episode using an epsilon-greedy policy.
-
-5.Store the state, action, and reward for every step of the episode.
-
-6.Calculate the return Gt by processing the episode.
-
-7.Update the Q-value using:
-```
-       Q(s,a)←Q(s,a)+α[Gt−Q(s,a)]
-```
-8.Decrease epsilon gradually to reduce exploration and increase exploitation.
-
-9.Repeat the process for all episodes.
-
-10.Extract the learned policy by selecting the action with the maximum Q-value for each state.
-
-11.Calculate the state-value function using:
-
-```
-V(s)=maxaQ(s,a)
-```
-12.Display the Q-table, state-value function, learned policy, average reward, and learning curve.
+1. Initialize the FrozenLake-v1 environment with the required states and actions.
+2. Initialize the Q-table Q(s,a) with zeros for all state-action pairs.
+3. Set the hyperparameters: number of episodes, learning rate α, discount factor γ, and exploration rate ε.
+4. Reset the environment to obtain the initial state.
+5. Use an epsilon-greedy policy to select an action based on the current Q-values.
+6. Execute the selected action and observe the next state and reward.
+7. Store the state, action, and reward as part of the current episode.
+8. Continue selecting actions and collecting experiences until the episode terminates.
+9. Initialize the return G to zero after completing the episode.
+10. Traverse the stored episode in reverse order to calculate the return for each state-action pair.
+11. Update Q(s,a) using the Monte Carlo incremental update rule.
+12. Gradually decrease ε to reduce exploration and increase exploitation during training.
+13. Repeat the episode generation and Q-value update process for the specified number of episodes.
+14. Derive the state-value function V(s) and the final greedy policy from the learned Q-table.
+15. Evaluate the learned policy, calculate the average reward, and plot the learning curve to analyze the performance.
 
 
 ## Python Program
@@ -145,204 +166,268 @@ V(s)=maxaQ(s,a)
 
 
 ```python
-
-
 import gymnasium as gym
 import numpy as np
 import matplotlib.pyplot as plt
 
 
-# -------------------------------------------------
-# Create Environment
-# -------------------------------------------------
-
 # Create FrozenLake environment
-env = gym.make("FrozenLake-v1", is_slippery=True)
+env = gym.make("FrozenLake-v1", is_slippery=False)
 
-# Environment details
 n_states = env.observation_space.n
 n_actions = env.action_space.n
 
+print("Number of States:", n_states)
+print("Number of Actions:", n_actions)
 
-# -------------------------------------------------
-# Hyperparameters
-# -------------------------------------------------
 
-num_episodes = 20000
-gamma = 0.99
+# Parameters
+num_episodes = 5000
 alpha = 0.1
+gamma = 0.99
 
-epsilon_start = 1.0
+epsilon = 1.0
 epsilon_min = 0.05
-epsilon_decay = 0.9995
+epsilon_decay = 0.9997
 
-max_steps_per_episode = 100
+print("\nnum_episodes =", num_episodes)
 
 
-# -------------------------------------------------
 # Initialize Q-table
-# -------------------------------------------------
-
 Q = np.zeros((n_states, n_actions))
+
+
+# Epsilon-greedy action selection
+def choose_action(state, epsilon):
+
+    if np.random.random() < epsilon:
+        return env.action_space.sample()
+
+    max_q = np.max(Q[state])
+    best_actions = np.flatnonzero(Q[state] == max_q)
+
+    return np.random.choice(best_actions)
+
+
+# Training
 episode_rewards = []
 
-
-# -------------------------------------------------
-# Epsilon-Greedy Action Selection
-# -------------------------------------------------
-
-
-def epsilon_greedy_action(state, epsilon):
-    """
-    Selects an action using epsilon-greedy policy.
-    """
-    if np.random.random() < epsilon:
-        return env.action_space.sample()      # Explore
-    else:
-        return np.argmax(Q[state])            # Exploit
-
-
-# -------------------------------------------------
-# Generate One Complete Episode
-# -------------------------------------------------
-
-def generate_episode(epsilon):
-    """
-    Generates one episode using the current epsilon-greedy policy.
-    Returns a list of (state, action, reward).
-    """
-
-    episode = []
+for episode in range(num_episodes):
 
     state, info = env.reset()
 
-    for _ in range(max_steps_per_episode):
-        action = epsilon_greedy_action(state, epsilon)
+    episode_data = []
+
+    terminated = False
+    truncated = False
+
+    total_reward = 0
+
+    # Generate complete episode
+    while not (terminated or truncated):
+
+        action = choose_action(state, epsilon)
 
         next_state, reward, terminated, truncated, info = env.step(action)
 
-        episode.append((state, action, reward))
+        episode_data.append((state, action, reward))
+
+        total_reward += reward
 
         state = next_state
 
-        if terminated or truncated:
-            break
-
-    return episode
-
-
-
-# -------------------------------------------------
-# Monte Carlo Control
-# -------------------------------------------------
-
-epsilon = epsilon_start
-
-for episode_num in range(num_episodes):
-
-    # Generate one complete episode
-    episode = generate_episode(epsilon)
-
+    # Calculate Monte Carlo returns
     G = 0
 
-    # Process episode backwards
-    for state, action, reward in reversed(episode):
+    for state, action, reward in reversed(episode_data):
 
-        G = gamma * G + reward
+        G = reward + gamma * G
 
-        # Incremental Monte Carlo update
-        Q[state, action] = Q[state, action] + alpha * (G - Q[state, action])
+        Q[state, action] += alpha * (G - Q[state, action])
 
-    # Store episode reward
-    episode_rewards.append(sum([step[2] for step in episode]))
+    # Epsilon decay
+    epsilon = max(
+        epsilon_min,
+        epsilon * epsilon_decay
+    )
 
-    # Decay epsilon
-    epsilon = max(epsilon_min, epsilon * epsilon_decay)
-
-
-# -------------------------------------------------
-# Extract Greedy Policy
-# -------------------------------------------------
-
-optimal_policy = np.argmax(Q, axis=1)
-state_values = np.max(Q, axis=1)
-
-# -------------------------------------------------
-# Display Results
-# -------------------------------------------------
-
-print("Name: Ramesh Renuka")
-print("Register Number: 212223240136")
-def print_policy(policy):
-    action_symbols = {
-        0: "L",
-        1: "D",
-        2: "R",
-        3: "U"
-    }
-
-    policy_grid = np.array(
-        [action_symbols[action] for action in policy]
-    ).reshape(4, 4)
-    print("\nLearned Policy:")
-    print(policy_grid)
+    episode_rewards.append(total_reward)
 
 
-def print_value_function(values):
-    print("\nEstimated State-Value Function:")
-    print(np.round(values.reshape(4, 4), 3))
-
+# Display Q-table
+np.set_printoptions(precision=3, suppress=True)
 
 print("\nFinal Q-table:")
-print(np.round(Q, 3))
-
-print_value_function(state_values)
-print_policy(optimal_policy)
-
-success_rate = np.mean(episode_rewards[-1000:])
-print("\nAverage reward over last 1000 episodes:", success_rate)
+print(Q)
 
 
+# Estimated State-Value Function
+V = np.max(Q, axis=1)
 
-# -------------------------------------------------
-# Plot Learning Curve
-# -------------------------------------------------
+print("\nEstimated State-Value Function:")
+print(V.reshape(4, 4))
 
-window = 500
+
+# Learned Policy
+policy = np.argmax(Q, axis=1)
+
+action_symbols = {
+    0: "L",
+    1: "D",
+    2: "R",
+    3: "U"
+}
+
+learned_policy = np.array(
+    [action_symbols[action] for action in policy]
+).reshape(4, 4)
+
+print("\nLearned Policy:")
+print(learned_policy)
+
+
+# Average reward over last 1000 episodes
+average_reward = np.mean(episode_rewards[-1000:])
+
+print(
+    "\nAverage reward over last 1000 episodes:",
+    round(average_reward, 2)
+)
+
+
+# Learning Curve
+window = 100
+
 moving_average = np.convolve(
     episode_rewards,
     np.ones(window) / window,
     mode="valid"
 )
 
-plt.figure(figsize=(8, 5))
-plt.plot(moving_average)
+plt.figure(figsize=(10, 5))
+
+plt.plot(
+    moving_average,
+    label="Average Reward"
+)
+
 plt.xlabel("Episode")
 plt.ylabel("Average Reward")
-plt.title("Monte Carlo Control Learning Curve")
+plt.title("On-Policy Monte Carlo Control Learning Curve")
+
 plt.grid(True)
+plt.legend()
+
 plt.show()
 
+
+# Evaluate learned policy
+evaluation_episodes = 1000
+successes = 0
+
+for episode in range(evaluation_episodes):
+
+    state, info = env.reset()
+
+    terminated = False
+    truncated = False
+
+    while not (terminated or truncated):
+
+        # Greedy action
+        action = np.argmax(Q[state])
+
+        next_state, reward, terminated, truncated, info = env.step(action)
+
+        state = next_state
+
+        if reward == 1:
+            successes += 1
+
+
+success_rate = successes / evaluation_episodes
+
+print(
+    "\nEvaluation Success Rate:",
+    round(success_rate, 3)
+)
+
+print(
+    "Evaluation Success Percentage:",
+    round(success_rate * 100, 2),
+    "%"
+)
+
+
+# Close environment
 env.close()
+
+
 
 ```
 
 ## Output
 
-### Final Q-table:
+### num_episodes =5000
 
 
+Final Q-table:
+
+<img width="694" height="346" alt="image" src="https://github.com/user-attachments/assets/f538a523-d8f8-4387-b303-c6618d27f061" />
 
 
-### Manto Carlo Learning curve :
+Estimated State-Value Function:
 
+<img width="636" height="108" alt="image" src="https://github.com/user-attachments/assets/c761d493-88dc-4489-baa4-a41c5421713a" />
+
+
+Learned Policy:
+
+<img width="598" height="108" alt="image" src="https://github.com/user-attachments/assets/f01743c6-ef5f-4a4b-a10a-9a2fa626acf8" />
+
+
+Average reward over last 1000 episodes: 
+
+<img width="455" height="42" alt="image" src="https://github.com/user-attachments/assets/d48f8760-65c3-4a32-a8ba-004ce67b56fd" />
+
+Manto Carlo Learning curve :
+
+<img width="1218" height="532" alt="image" src="https://github.com/user-attachments/assets/38d77d52-039f-4bf8-9730-88af9210df64" />
+
+
+### num_episodes =20000
+
+
+Final Q-table:
+
+<img width="705" height="346" alt="image" src="https://github.com/user-attachments/assets/52218010-084c-47ca-8d34-59ebcef31652" />
+
+Estimated State-Value Function:
+
+<img width="664" height="117" alt="image" src="https://github.com/user-attachments/assets/f6ce3769-90aa-4ad6-9b3d-68eb08d84d42" />
+
+
+Learned Policy:
+
+<img width="519" height="109" alt="image" src="https://github.com/user-attachments/assets/52b09051-7824-4d99-a105-c6ec5b804bb2" />
+
+Average reward over last 1000 episodes: 
+
+<img width="538" height="41" alt="image" src="https://github.com/user-attachments/assets/8d1f7837-67fe-43ab-834c-61af2e8883be" />
+
+
+Manto Carlo Learning curve :
+
+<img width="1002" height="467" alt="image" src="https://github.com/user-attachments/assets/c69cf78e-3fb9-46fa-b791-9315bb11429e" />
 
 
 ## Result
 
-The Monte Carlo Control algorithm was successfully implemented using the Gymnasium FrozenLake-v1 environment. The agent learned the action-value function Q(s,a) through complete episodes using an epsilon-greedy policy.
+The On-Policy Monte Carlo Control method was successfully implemented in the FrozenLake-v1 environment. The agent learned the action-value function Q(s,a) from complete episodes using an epsilon-greedy policy. The average reward over the last 1,000 episodes was 0.69 for 5,000 training episodes and 0.95 for 20,000 training episodes, indicating successful policy learning.
 
 ## Inference
 
-The performance of the Monte Carlo Control algorithm improves when the number of training episodes is increased. With 4,800 episodes, the agent achieved an average reward of 0.865 over the last 1,000 episodes, and the learning curve was still increasing, indicating that the agent was still learning. With 20,000 episodes, the average reward increased to 0.961, and the learning curve became more stable around a higher reward level. The Q-table and state-value estimates also became more reliable with additional training. Therefore, increasing the number of episodes from 4,800 to 20,000 provided more experience, improved the learned policy, and resulted in better and more stable performance. Hence, 20,000 episodes gives better learning performance than 4,800 episodes.
+The experimental comparison shows that increasing the training episodes led to better agent performance. The average reward improved from 0.69 to 0.95 when the training duration increased from 5,000 to 20,000 episodes. This indicates that additional experience helped the agent refine its Q-values and make more effective decisions. Therefore, 20,000 episodes provided better learning performance and a more reliable policy than 5,000 episodes.
+
+---
 
